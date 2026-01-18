@@ -1,9 +1,9 @@
 
 import React from 'react';
-import { 
-  TrendingUp, 
-  Users, 
-  DollarSign, 
+import {
+  TrendingUp,
+  Users,
+  DollarSign,
   Clock,
   ChevronRight,
   Zap,
@@ -21,7 +21,7 @@ interface Props {
 const DashboardView: React.FC<Props> = ({ contacts, setActiveTab }) => {
   const totalValue = contacts.reduce((acc, curr) => acc + curr.value, 0);
   const activeLeads = contacts.filter(c => c.stage !== LeadStage.WON && c.stage !== LeadStage.LOST).length;
-  
+
   const stageData = [
     { name: 'Leads', value: contacts.filter(c => c.stage === LeadStage.LEAD).length, color: '#6366f1' },
     { name: 'Active', value: contacts.filter(c => c.stage !== LeadStage.LEAD && c.stage !== LeadStage.WON && c.stage !== LeadStage.LOST).length, color: '#8b5cf6' },
@@ -30,7 +30,7 @@ const DashboardView: React.FC<Props> = ({ contacts, setActiveTab }) => {
 
   return (
     <div className="px-6 py-6 space-y-6">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 md:mb-8">
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
           <div className="flex items-center gap-2 mb-2">
             <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg">
@@ -66,7 +66,7 @@ const DashboardView: React.FC<Props> = ({ contacts, setActiveTab }) => {
         <p className="text-sm text-indigo-100 opacity-90 mb-4 font-medium">
           The Q3 rollout proposal hasn't been touched in 4 days. Elena usually responds within 48 hours.
         </p>
-        <button 
+        <button
           onClick={() => setActiveTab('contacts')}
           className="bg-white text-indigo-600 text-xs font-bold py-2.5 px-5 rounded-full hover:bg-indigo-50 transition-colors"
         >
@@ -120,20 +120,20 @@ const DashboardView: React.FC<Props> = ({ contacts, setActiveTab }) => {
           </button>
         </div>
         <div className="space-y-3">
-          <ActivityItem 
-            title="Meeting with Sarah Chen" 
-            time="2h ago" 
-            type="meeting" 
+          <ActivityItem
+            title="Meeting with Sarah Chen"
+            time="2h ago"
+            type="meeting"
           />
-          <ActivityItem 
-            title="Email received from Nexus Tech" 
-            time="5h ago" 
-            type="email" 
+          <ActivityItem
+            title="Email received from Nexus Tech"
+            time="5h ago"
+            type="email"
           />
-          <ActivityItem 
-            title="Lead Marcus Miller created" 
-            time="Yesterday" 
-            type="lead" 
+          <ActivityItem
+            title="Lead Marcus Miller created"
+            time="Yesterday"
+            type="lead"
           />
         </div>
       </div>

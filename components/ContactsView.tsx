@@ -1,12 +1,12 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'framer-motion';
-import { 
-  Building2, 
-  Mail, 
-  Phone, 
-  ArrowRight, 
-  TrendingUp, 
+import {
+  Building2,
+  Mail,
+  Phone,
+  ArrowRight,
+  TrendingUp,
   MoreVertical,
   CheckCircle2,
   XCircle,
@@ -21,41 +21,64 @@ interface Props {
   updateContactStage: (id: string, newStage: LeadStage) => void;
 }
 
+import KanbanBoard from './KanbanBoard';
+
 const ContactsView: React.FC<Props> = ({ contacts, updateContactStage }) => {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768);
+
+  React.useEffect(() => {
+    const handleResize = () => setIsDesktop(window.innerWidth >= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   return (
-    <div className="py-6 flex flex-col h-full overflow-hidden">
-      <div className="px-6 mb-6">
-        <h2 className="text-xl font-bold text-slate-900 mb-1">Pipeline</h2>
-        <p className="text-xs text-slate-500 font-medium">Swipe cards to progress deal stages</p>
-      </div>
+    <div className="flex flex-col h-full overflow-hidden">
+      {!isDesktop && (
+        <div className="px-6 py-4 mb-2">
+          <h2 className="text-xl font-bold text-slate-900 mb-1">Pipeline</h2>
+          <p className="text-xs text-slate-500 font-medium">Swipe cards to progress deal stages</p>
+        </div>
+      )}
 
-      <div className="flex-1 overflow-y-auto px-6 space-y-4 no-scrollbar pb-10">
-        <AnimatePresence>
-          {contacts.map((contact) => (
-            <ContactSwipeCard 
-              key={contact.id} 
-              contact={contact} 
-              onStageChange={(newStage) => updateContactStage(contact.id, newStage)}
-              onClick={() => setSelectedContact(contact)}
+      <div className="flex-1 overflow-hidden">
+        {isDesktop ? (
+          <div className="h-full p-4 overflow-x-auto">
+            <KanbanBoard
+              contacts={contacts}
+              onStageChange={updateContactStage}
+              onContactClick={setSelectedContact}
             />
-          ))}
-        </AnimatePresence>
+          </div>
+        ) : (
+          <div className="px-6 pb-10 overflow-y-auto h-full space-y-4 no-scrollbar">
+            <AnimatePresence>
+              {contacts.map((contact) => (
+                <ContactSwipeCard
+                  key={contact.id}
+                  contact={contact}
+                  onStageChange={(newStage) => updateContactStage(contact.id, newStage)}
+                  onClick={() => setSelectedContact(contact)}
+                />
+              ))}
+            </AnimatePresence>
+          </div>
+        )}
       </div>
 
       {selectedContact && (
-        <ContactDetailModal 
-          contact={selectedContact} 
-          onClose={() => setSelectedContact(null)} 
+        <ContactDetailModal
+          contact={selectedContact}
+          onClose={() => setSelectedContact(null)}
         />
       )}
     </div>
   );
 };
 
-const ContactSwipeCard: React.FC<{ 
-  contact: Contact; 
+const ContactSwipeCard: React.FC<{
+  contact: Contact;
   onStageChange: (stage: LeadStage) => void;
   onClick: () => void;
 }> = ({ contact, onStageChange, onClick }) => {
@@ -156,7 +179,7 @@ const ContactSwipeCard: React.FC<{
 
 const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = ({ contact, onClose }) => {
   return (
-    <motion.div 
+    <motion.div
       initial={{ y: '100%' }}
       animate={{ y: 0 }}
       exit={{ y: '100%' }}
@@ -169,7 +192,7 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
         <h3 className="text-lg font-bold text-slate-900">Contact Profile</h3>
         <div className="w-10" />
       </div>
-      
+
       <div className="flex-1 overflow-y-auto p-6 space-y-8 no-scrollbar pb-10">
         <div className="text-center">
           <div className="w-20 h-20 rounded-3xl bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center text-3xl font-bold mb-4 shadow-sm">
@@ -200,11 +223,10 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
           <div className="space-y-6 relative before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-px before:bg-slate-100">
             {contact.interactions.map((interaction, idx) => (
               <div key={idx} className="flex gap-4 relative">
-                <div className={`w-5 h-5 rounded-full z-10 mt-1 flex items-center justify-center text-[10px] font-bold ${
-                  interaction.type === 'meeting' ? 'bg-indigo-600 text-white' : 
-                  interaction.type === 'email' ? 'bg-amber-400 text-white' : 
-                  'bg-slate-300 text-white'
-                }`}>
+                <div className={`w-5 h-5 rounded-full z-10 mt-1 flex items-center justify-center text-[10px] font-bold ${interaction.type === 'meeting' ? 'bg-indigo-600 text-white' :
+                    interaction.type === 'email' ? 'bg-amber-400 text-white' :
+                      'bg-slate-300 text-white'
+                  }`}>
                 </div>
                 <div>
                   <div className="flex items-center gap-2 mb-1">

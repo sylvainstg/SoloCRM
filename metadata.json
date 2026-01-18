@@ -1,0 +1,7 @@
+{
+  "name": "SoloCRM",
+  "description": "A mobile-first individual CRM with email/calendar intelligence, gesture-based lead management, and AI-powered follow-up suggestions.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

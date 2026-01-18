@@ -121,7 +121,7 @@ const AuthenticatedApp: React.FC = () => {
       case 'calendar':
         return <CalendarView />;
       case 'email':
-        return <EmailSyncView />;
+        return <EmailSyncView contacts={contacts} />;
       default:
         return <DashboardView contacts={contacts} setActiveTab={setActiveTab} />;
     }

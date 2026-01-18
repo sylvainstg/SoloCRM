@@ -44,6 +44,7 @@ export interface EmailThread {
   id: string;
   subject: string;
   from: string;
+  email?: string;
   date: string;
   snippet: string;
 }

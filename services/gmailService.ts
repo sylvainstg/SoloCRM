@@ -1,8 +1,9 @@
 import { EmailThread } from '../types';
 
-export const listEmails = async (accessToken: string, maxResults = 20): Promise<EmailThread[]> => {
+export const listEmails = async (accessToken: string, maxResults = 50): Promise<EmailThread[]> => {
     if (!accessToken) throw new Error("No access token provided");
 
+    // 1. List Threads (Lightweight call)
     const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads?maxResults=${maxResults}&q=label:INBOX`, {
         headers: {
             Authorization: `Bearer ${accessToken}`,
@@ -18,39 +19,71 @@ export const listEmails = async (accessToken: string, maxResults = 20): Promise<
     const data = await response.json();
     if (!data.threads) return [];
 
-    // Fetch details for each thread to get snippet and subject
-    const threads: EmailThread[] = await Promise.all(
-        data.threads.map(async (thread: any) => {
-            const detailResponse = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${thread.id}`, {
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                },
-            });
-            const detail = await detailResponse.json();
+    // 2. Fetch Details in Batches (to avoid 429 Too Many Requests)
+    const BATCH_SIZE = 5;
+    const DELAY_MS = 100;
+    const threads: EmailThread[] = [];
 
-            // Extract headers
-            const headers = detail.messages[0].payload.headers;
-            const subject = headers.find((h: any) => h.name === 'Subject')?.value || '(No Subject)';
-            const fromRaw = headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
+    for (let i = 0; i < data.threads.length; i += BATCH_SIZE) {
+        const chunk = data.threads.slice(i, i + BATCH_SIZE);
 
-            // Robust Parsing: "Name <email@domain.com>" -> "email@domain.com"
-            const emailMatch = fromRaw.match(/<([^>]+)>/);
-            const email = emailMatch ? emailMatch[1] : fromRaw;
-            const name = fromRaw.includes('<') ? fromRaw.split('<')[0].trim().replace(/^"|"$/g, '') : fromRaw;
+        // Process chunk in parallel
+        const chunkResults = await Promise.all(
+            chunk.map(async (thread: any) => {
+                try {
+                    const detailResponse = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/threads/${thread.id}`, {
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                        },
+                    });
 
-            // Simple date extraction from internalDate
-            const date = new Date(parseInt(detail.messages[0].internalDate)).toLocaleDateString();
+                    if (!detailResponse.ok) {
+                        if (detailResponse.status === 429) {
+                            console.warn(`Rate limit hit for thread ${thread.id}, skipping.`);
+                            return null;
+                        }
+                        return null;
+                    }
 
-            return {
-                id: thread.id,
-                subject,
-                from: name, // User-friendly name
-                email: email, // Actual email for matching
-                date,
-                snippet: detail.messages[0].snippet
-            };
-        })
-    );
+                    const detail = await detailResponse.json();
+
+                    // Extract headers
+                    const headers = detail.messages[0].payload.headers;
+                    const subject = headers.find((h: any) => h.name === 'Subject')?.value || '(No Subject)';
+                    const fromRaw = headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
+
+                    // Robust Parsing
+                    const emailMatch = fromRaw.match(/<([^>]+)>/);
+                    const email = emailMatch ? emailMatch[1] : fromRaw;
+                    const name = fromRaw.includes('<') ? fromRaw.split('<')[0].trim().replace(/^"|"$/g, '') : fromRaw;
+
+                    const date = new Date(parseInt(detail.messages[0].internalDate)).toLocaleDateString();
+
+                    return {
+                        id: thread.id,
+                        subject,
+                        from: name,
+                        email: email,
+                        date,
+                        snippet: detail.messages[0].snippet
+                    };
+                } catch (e) {
+                    console.error(`Failed to fetch thread ${thread.id}`, e);
+                    return null;
+                }
+            })
+        );
+
+        // Filter out failed requests (nulls)
+        chunkResults.forEach(res => {
+            if (res) threads.push(res);
+        });
+
+        // Small delay between batches
+        if (i + BATCH_SIZE < data.threads.length) {
+            await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+        }
+    }
 
     return threads;
 };

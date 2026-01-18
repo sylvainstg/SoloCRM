@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { listEmails } from '../services/gmailService';
 import { addInteraction, addContact, ignoreSender, subscribeToIgnored } from '../services/firestoreService';
 import { EmailThread, Contact, LeadStage } from '../types';
+import LeadCaptureModal from './LeadCaptureModal';
 
 interface Props {
   contacts: Contact[];
@@ -14,12 +15,15 @@ const EmailSyncView: React.FC<Props> = ({ contacts = [] }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'suggested' | 'all'>('suggested');
+  const [selectedThreadForCreation, setSelectedThreadForCreation] = useState<EmailThread | null>(null);
 
   // Persistent Ignored Senders
   const [ignoredEmails, setIgnoredEmails] = useState<Set<string>>(new Set());
   const [loggedIds, setLoggedIds] = useState<Set<string>>(new Set());
 
   const { googleAccessToken, signInWithGoogle, user } = useAuth();
+
+  console.log("EmailSyncView Render Cycle. Modal State:", !!selectedThreadForCreation);
 
   // Subscribe to Ignored List
   useEffect(() => {
@@ -94,31 +98,41 @@ const EmailSyncView: React.FC<Props> = ({ contacts = [] }) => {
       });
       setLoggedIds(prev => new Set(prev).add(thread.id));
     } else {
-      // Create New Lead
-      if (!thread.email) return;
-
-      const newContact: Contact = {
-        id: crypto.randomUUID(),
-        name: thread.from,
-        company: 'New Lead', // Placeholder
-        email: thread.email,
-        phone: '',
-        stage: LeadStage.LEAD,
-        value: 0,
-        lastInteractionDate: new Date().toISOString().split('T')[0],
-        interactions: [{
-          id: `email-${thread.id}`,
-          type: 'email',
-          date: new Date().toISOString().split('T')[0],
-          summary: `Initial contact: ${thread.subject}`,
-          sentiment: 'neutral'
-        }]
-      };
-
-      await addContact(user.uid, newContact);
-      setLoggedIds(prev => new Set(prev).add(thread.id));
-      alert(`Lead Created: ${thread.from}`);
+      // Open Modal for New Lead
+      if (!thread.email) {
+        // Fallback if no email, but still allow creation
+        console.warn("Thread missing email, allowing manual entry");
+      }
+      setSelectedThreadForCreation(thread);
     }
+  };
+
+  const handleSaveOpportunity = async (data: { name: string; company: string; email: string; value: number; closeDate: string; notes: string }) => {
+    if (!user || !selectedThreadForCreation) return;
+
+    const newContact: Contact = {
+      id: crypto.randomUUID(),
+      name: data.name,
+      company: data.company,
+      email: data.email,
+      phone: '',
+      stage: LeadStage.LEAD,
+      value: data.value,
+      lastInteractionDate: new Date().toISOString().split('T')[0],
+      notes: data.notes,
+      interactions: [{
+        id: `email-${selectedThreadForCreation.id}`,
+        type: 'email',
+        date: new Date().toISOString().split('T')[0],
+        summary: `Initial contact: ${selectedThreadForCreation.subject}`,
+        sentiment: 'neutral'
+      }]
+    };
+
+    await addContact(user.uid, newContact);
+    setLoggedIds(prev => new Set(prev).add(selectedThreadForCreation.id));
+    setSelectedThreadForCreation(null); // Close modal
+    alert(`Opportunity Created: ${data.name}`);
   };
 
   if (!googleAccessToken) {
@@ -171,8 +185,8 @@ const EmailSyncView: React.FC<Props> = ({ contacts = [] }) => {
             {thread.snippet}
           </p>
 
-          {/* Actions */}
-          <div className="flex gap-2 justify-end border-t border-slate-50 pt-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+          {/* Actions - Always Visible */}
+          <div className="flex gap-2 justify-end border-t border-slate-50 pt-2">
             <button
               onClick={(e) => handleIgnore(thread, e)}
               className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors flex items-center gap-1"
@@ -186,8 +200,8 @@ const EmailSyncView: React.FC<Props> = ({ contacts = [] }) => {
               onClick={(e) => handleLog(thread, e)}
               disabled={isLogged}
               className={`p-1.5 rounded-lg flex items-center gap-1 transition-colors ${isLogged
-                  ? 'text-green-600 bg-green-100 cursor-default'
-                  : 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100'
+                ? 'text-green-600 bg-green-100 cursor-default'
+                : 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100'
                 }`}
               title={contact ? "Log Interaction" : "Create Lead"}
             >
@@ -228,8 +242,8 @@ const EmailSyncView: React.FC<Props> = ({ contacts = [] }) => {
         <button
           onClick={() => setActiveTab('suggested')}
           className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'suggested'
-              ? 'bg-white text-indigo-600 shadow-sm'
-              : 'text-slate-500 hover:text-slate-700'
+            ? 'bg-white text-indigo-600 shadow-sm'
+            : 'text-slate-500 hover:text-slate-700'
             }`}
         >
           Suggested ({triagedThreads.suggested.length})
@@ -237,8 +251,8 @@ const EmailSyncView: React.FC<Props> = ({ contacts = [] }) => {
         <button
           onClick={() => setActiveTab('all')}
           className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${activeTab === 'all'
-              ? 'bg-white text-indigo-600 shadow-sm'
-              : 'text-slate-500 hover:text-slate-700'
+            ? 'bg-white text-indigo-600 shadow-sm'
+            : 'text-slate-500 hover:text-slate-700'
             }`}
         >
           Others ({triagedThreads.others.length})
@@ -257,6 +271,14 @@ const EmailSyncView: React.FC<Props> = ({ contacts = [] }) => {
             : renderThreadList(triagedThreads.others, "All inbox emails caught up!")
           }
         </div>
+      )}
+
+      {selectedThreadForCreation && (
+        <LeadCaptureModal
+          thread={selectedThreadForCreation}
+          onClose={() => setSelectedThreadForCreation(null)}
+          onSave={handleSaveOpportunity}
+        />
       )}
     </div>
   );

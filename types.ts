@@ -30,6 +30,7 @@ export interface Contact {
   lastInteractionDate: string;
   interactions: Interaction[];
   aiInsight?: string;
+  notes?: string;
 }
 
 export interface CalendarEvent {

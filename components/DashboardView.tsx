@@ -10,17 +10,53 @@ import {
   Calendar as CalendarIcon,
   Mail
 } from 'lucide-react';
-import { Contact, LeadStage } from '../types';
+import { Contact, LeadStage, EmailThread } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 interface Props {
   contacts: Contact[];
   setActiveTab: (tab: any) => void;
+  emailThreads?: EmailThread[];
+  ignoredEmails?: Set<string>;
 }
 
-const DashboardView: React.FC<Props> = ({ contacts, setActiveTab }) => {
+const DashboardView: React.FC<Props> = ({ contacts, setActiveTab, emailThreads = [], ignoredEmails = new Set() }) => {
   const totalValue = contacts.reduce((acc, curr) => acc + curr.value, 0);
   const activeLeads = contacts.filter(c => c.stage !== LeadStage.WON && c.stage !== LeadStage.LOST).length;
+
+  // Calculate Pending Inbound (Emails from known contacts, not ignored, not logged yet)
+  // Note: We don't have access to loggedIds here easily unless passed down, 
+  // but we can approximate or just show recent relevant ones. 
+  // Ideally App should pass pending emails, but we can compute 'Suggested' here.
+  // For simplicity, we'll show up to 3 'Suggested' emails.
+
+  // Calculate Pending Inbound (Emails from known contacts, not ignored, not logged yet)
+  // New Logic: 
+  // 1. Triage Items (passed as emailThreads) - Unknown senders
+  // 2. Recent Interactions from Contacts - Known senders (auto-associated)
+
+  const recentContactEmails = contacts.flatMap(c => {
+    // Get recent email interactions (e.g. last 3 days)
+    return c.interactions
+      .filter(i => i.type === 'email' && new Date(i.date) > new Date(Date.now() - 3 * 24 * 60 * 60 * 1000))
+      .map(i => ({
+        id: i.id,
+        from: c.name, // Use contact name
+        email: c.email,
+        subject: i.summary.replace('Received: ', ''),
+        date: i.date,
+        snippet: 'Auto-logged interaction',
+        isKnown: true
+      }));
+  });
+
+  // Triage items (Unknowns)
+  const triageItems = emailThreads.map(t => ({ ...t, isKnown: false }));
+
+  // Combine and sort by date desc
+  const pendingInbound = [...recentContactEmails, ...triageItems]
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 5); // Show top 5
 
   const stageData = [
     { name: 'Leads', value: contacts.filter(c => c.stage === LeadStage.LEAD).length, color: '#6366f1' },
@@ -30,6 +66,49 @@ const DashboardView: React.FC<Props> = ({ contacts, setActiveTab }) => {
 
   return (
     <div className="px-6 py-6 space-y-6">
+
+      {/* Pending Inbound / Smart Updates */}
+      {pendingInbound.length > 0 && (
+        <div className="bg-white border border-indigo-100 rounded-3xl p-5 shadow-sm relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 rounded-full blur-3xl -translate-y-10 translate-x-10 pointer-events-none"></div>
+          <div className="flex items-center justify-between mb-4 relative z-10">
+            <div className="flex items-center gap-2">
+              <div className="p-2 bg-indigo-100/50 text-indigo-700 rounded-xl">
+                <Mail size={18} />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900">Inbound Updates</h3>
+                <p className="text-xs text-slate-500 font-medium">{pendingInbound.length} recent updates (Triage & Deals)</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveTab('email')}
+              className="text-xs font-bold text-indigo-600 hover:text-indigo-700 bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              Process Inbox
+            </button>
+          </div>
+
+          <div className="space-y-3 relative z-10">
+            {pendingInbound.map(thread => (
+              <div key={thread.id} className="flex items-start gap-3 p-3 bg-slate-50/80 rounded-2xl hover:bg-white border border-transparent hover:border-indigo-100 hover:shadow-sm transition-all group cursor-pointer" onClick={() => setActiveTab('email')}>
+                <div className={`w-8 h-8 rounded-full border flex items-center justify-center text-xs font-bold shadow-sm flex-shrink-0 ${thread.isKnown ? 'bg-white border-slate-200 text-indigo-700' : 'bg-indigo-600 border-transparent text-white'}`}>
+                  {thread.isKnown ? thread.from.charAt(0) : '?'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-start">
+                    <h4 className="font-bold text-slate-800 text-sm truncate">{thread.from}</h4>
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">{thread.date}</span>
+                  </div>
+                  <p className="text-xs text-slate-600 font-medium truncate mb-0.5">{thread.subject}</p>
+                  <p className="text-[10px] text-slate-400 truncate">{thread.snippet}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 md:mb-8">
         <div className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
           <div className="flex items-center gap-2 mb-2">

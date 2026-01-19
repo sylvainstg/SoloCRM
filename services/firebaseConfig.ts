@@ -20,6 +20,7 @@ export const db = getFirestore(app);
 // Add scopes for Gmail and Calendar
 // Note: These will trigger the "Unverified App" warning.
 googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
 googleProvider.addScope('https://www.googleapis.com/auth/calendar.events.readonly');
 googleProvider.addScope('email');
 googleProvider.addScope('profile');

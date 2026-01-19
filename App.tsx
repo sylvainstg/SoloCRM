@@ -15,7 +15,7 @@ import ContactsView from './components/ContactsView';
 import CalendarView from './components/CalendarView';
 import EmailSyncView from './components/EmailSyncView';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { subscribeToContacts, updateContactStage as updateStageInDb, seedInitialContacts } from './services/firestoreService';
+import { subscribeToContacts, updateContactStage as updateStageInDb, seedInitialContacts, subscribeToIgnored } from './services/firestoreService';
 
 const MOCK_CONTACTS: Contact[] = [
   {
@@ -69,13 +69,24 @@ const App: React.FC = () => {
   );
 };
 
+import SettingsView from './components/SettingsView';
+
 const AuthenticatedApp: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'contacts' | 'calendar' | 'email'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'contacts' | 'calendar' | 'email' | 'settings'>('dashboard');
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoaded, setIsLoaded] = useState(false);
-  const { user, loading, signInWithGoogle, signOut } = useAuth();
+  const { user, loading, signInWithGoogle, signOut, googleAccessToken } = useAuth();
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+
+  // Email State (Lifted from EmailSyncView)
+  const [emailThreads, setEmailThreads] = useState<import('./types').EmailThread[]>([]);
+  const [isEmailLoading, setIsEmailLoading] = useState(false);
+  const [emailNextPageToken, setEmailNextPageToken] = useState<string | undefined>(undefined);
+  const [ignoredEmails, setIgnoredEmails] = useState<Set<string>>(new Set());
+  const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
+  const [emailHistoryDays, setEmailHistoryDays] = useState(7); // Default 7 days
+  const [isAuthError, setIsAuthError] = useState(false);
 
   // Subscribe to Firestore contacts
   useEffect(() => {
@@ -94,6 +105,93 @@ const AuthenticatedApp: React.FC = () => {
     return () => unsubscribe();
   }, [user]);
 
+  // Subscribe to Ignored List & Settings (Global)
+  useEffect(() => {
+    if (!user) return;
+
+    // Subscribe to Ignored
+    const unsubIgnored = subscribeToIgnored(user.uid, (emails) => {
+      setIgnoredEmails(new Set(emails));
+    });
+
+    // Subscribe to Settings
+    // Dynamic import to avoid earlier issues? Or we assume it's available.
+    // Using promise wrapper since subscribeToSettings is async imported? No, it's a direct export now.
+    // But we need to import it. I'll add the import to the existing firestoreService import list first? 
+    // Wait, the file header import list handles that. I'll need to update it separately or use dynamic import here.
+    let unsubSettings: () => void = () => { };
+
+    import('./services/firestoreService').then(({ subscribeToSettings }) => {
+      unsubSettings = subscribeToSettings(user.uid, (settings: any) => {
+        if (settings.emailHistoryDays) {
+          setEmailHistoryDays(settings.emailHistoryDays);
+        }
+      });
+    });
+
+    // Subscribe to Triage
+    let unsubTriage: () => void = () => { };
+    import('./services/firestoreService').then(({ subscribeToTriage }) => {
+      unsubTriage = subscribeToTriage(user.uid, (items) => {
+        // Map Triage items to EmailThread interface
+        const threads = items.map(item => ({
+          id: item.id,
+          subject: item.subject,
+          from: item.from,
+          email: item.email,
+          date: new Date(item.date).toLocaleDateString(),
+          snippet: item.snippet
+        }));
+        setEmailThreads(threads);
+      });
+    });
+
+    return () => {
+      unsubIgnored();
+      unsubSettings();
+      unsubTriage();
+    };
+  }, [user]);
+
+  // OLD FETCH REMOVED - Using Real-time Triage instead
+  const fetchEmails = async (loadMore = false) => {
+    // No-op for now, kept for interface compatibility if needed, 
+    // but logically replaced by subscription.
+    console.log("Polling deprecated: using Firestore Triage");
+  };
+
+  // Background Fetch REMOVED
+
+
+
+  const updateContactStage = (id: string, newStage: LeadStage) => {
+    // Optimistic update
+    setContacts(prev => prev.map(c => c.id === id ? { ...c, stage: newStage, stageLastUpdated: new Date().toISOString() } : c));
+    if (user) {
+      updateStageInDb(user.uid, id, newStage);
+    }
+  };
+
+  const handleUpdateContact = async (id: string, data: Partial<Contact>) => {
+    setContacts(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
+    if (user) {
+      const { updateContact } = await import('./services/firestoreService');
+      updateContact(user.uid, id, data);
+    }
+  };
+
+  const handleUnignore = async (email: string) => {
+    // Optimistic
+    const newIgnored = new Set(ignoredEmails);
+    newIgnored.delete(email);
+    setIgnoredEmails(newIgnored);
+
+    if (user) {
+      const { unignoreSender } = await import('./services/firestoreService');
+      await unignoreSender(user.uid, email);
+    }
+  };
+
 
   const filteredContacts = useMemo(() => {
     return contacts.filter(c =>
@@ -102,26 +200,51 @@ const AuthenticatedApp: React.FC = () => {
     );
   }, [contacts, searchQuery]);
 
-  const updateContactStage = (id: string, newStage: LeadStage) => {
-    // Optimistic update
-    setContacts(prev => prev.map(c => c.id === id ? { ...c, stage: newStage } : c));
-    if (user) {
-      updateStageInDb(user.uid, id, newStage);
-    }
-  };
-
   const renderContent = () => {
     if (!isLoaded) return <div className="flex-1 flex items-center justify-center text-slate-400">Loading your pipeline...</div>;
 
     switch (activeTab) {
       case 'dashboard':
-        return <DashboardView contacts={contacts} setActiveTab={setActiveTab} />;
+        return <DashboardView
+          contacts={contacts}
+          setActiveTab={setActiveTab}
+          emailThreads={emailThreads}
+          ignoredEmails={ignoredEmails}
+        />;
       case 'contacts':
-        return <ContactsView contacts={filteredContacts} updateContactStage={updateContactStage} />;
+        return <ContactsView
+          contacts={filteredContacts}
+          updateContactStage={updateContactStage}
+          onUpdateContact={handleUpdateContact}
+          onAddContact={() => setIsAddLeadOpen(true)}
+        />;
       case 'calendar':
         return <CalendarView />;
       case 'email':
-        return <EmailSyncView contacts={contacts} />;
+        return <EmailSyncView
+          contacts={contacts}
+          threads={emailThreads}
+          loading={isEmailLoading}
+          onRefresh={() => fetchEmails(false)}
+          ignoredEmails={ignoredEmails}
+          onLoadMore={() => fetchEmails(true)}
+          hasMore={!!emailNextPageToken}
+          isAuthError={isAuthError}
+          signInWithGoogle={signInWithGoogle}
+        />;
+      case 'settings':
+        return <SettingsView
+          ignoredEmails={ignoredEmails}
+          onUnignore={handleUnignore}
+          emailHistoryDays={emailHistoryDays}
+          onUpdateHistoryDays={async (days) => {
+            setEmailHistoryDays(days); // Optimistic
+            if (user) {
+              const { updateUserSetting } = await import('./services/firestoreService');
+              await updateUserSetting(user.uid, 'emailHistoryDays', days);
+            }
+          }}
+        />;
       default:
         return <DashboardView contacts={contacts} setActiveTab={setActiveTab} />;
     }
@@ -256,7 +379,8 @@ const AuthenticatedApp: React.FC = () => {
             <h2 className="text-2xl font-bold text-slate-800">
               {activeTab === 'dashboard' ? 'Dashboard' :
                 activeTab === 'contacts' ? 'Deals Pipeline' :
-                  activeTab === 'calendar' ? 'Calendar' : 'Inbox'}
+                  activeTab === 'calendar' ? 'Calendar' :
+                    activeTab === 'settings' ? 'Settings' : 'Inbox'}
             </h2>
             <p className="text-sm text-slate-400 font-medium">
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
@@ -271,7 +395,10 @@ const AuthenticatedApp: React.FC = () => {
                 className="pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 w-64"
               />
             </div>
-            <button className="w-10 h-10 bg-white rounded-xl border border-slate-200 flex items-center justify-center text-slate-400 hover:text-indigo-600 transition-colors shadow-sm">
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`w-10 h-10 rounded-xl border flex items-center justify-center transition-colors shadow-sm ${activeTab === 'settings' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-400 hover:text-indigo-600'}`}
+            >
               <Settings size={18} />
             </button>
           </div>
@@ -295,6 +422,71 @@ const AuthenticatedApp: React.FC = () => {
             <Plus size={28} />
           </button>
         )}
+      </div>
+
+      {isAddLeadOpen && (
+        <AddLeadModal
+          onClose={() => setIsAddLeadOpen(false)}
+          onAdd={async (contact) => {
+            // Implementation of add logic
+            const { addContact } = await import('./services/firestoreService');
+            if (user) {
+              await addContact(user.uid, contact);
+            }
+            setIsAddLeadOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+const AddLeadModal: React.FC<{ onClose: () => void; onAdd: (contact: Omit<Contact, 'id' | 'createdAt' | 'stageLastUpdated'>) => void }> = ({ onClose, onAdd }) => {
+  const [name, setName] = useState('');
+  const [company, setCompany] = useState('');
+  const [email, setEmail] = useState('');
+  const [value, setValue] = useState('');
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onAdd({
+      name,
+      company,
+      email,
+      phone: '',
+      stage: LeadStage.LEAD,
+      value: Number(value),
+      interactions: [],
+      lastInteractionDate: new Date().toLocaleDateString()
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md p-6">
+        <h2 className="text-xl font-bold mb-4">Add New Lead</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Name</label>
+            <input autoFocus value={name} onChange={e => setName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2" required />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Company</label>
+            <input value={company} onChange={e => setCompany(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2" required />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Estimated Value ($)</label>
+            <input type="number" value={value} onChange={e => setValue(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2" required />
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button type="button" onClick={onClose} className="flex-1 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl">Cancel</button>
+            <button type="submit" className="flex-1 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700">Add Lead</button>
+          </div>
+        </form>
       </div>
     </div>
   );

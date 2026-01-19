@@ -17,6 +17,7 @@ export interface Interaction {
   summary: string;
   details?: string;
   sentiment?: 'positive' | 'neutral' | 'negative';
+  direction?: 'inbound' | 'outbound';
 }
 
 export interface Contact {
@@ -31,6 +32,8 @@ export interface Contact {
   interactions: Interaction[];
   aiInsight?: string;
   notes?: string;
+  createdAt?: string;
+  stageLastUpdated?: string;
 }
 
 export interface CalendarEvent {

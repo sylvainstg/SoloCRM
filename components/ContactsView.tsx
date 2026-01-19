@@ -15,15 +15,18 @@ import {
 } from 'lucide-react';
 import { Contact, LeadStage } from '../types';
 import { STAGE_COLORS, STAGES_ORDER } from '../constants';
+import { useAuth } from '../context/AuthContext';
 
 interface Props {
   contacts: Contact[];
   updateContactStage: (id: string, newStage: LeadStage) => void;
+  onUpdateContact: (id: string, data: Partial<Contact>) => void;
+  onAddContact: () => void;
 }
 
 import KanbanBoard from './KanbanBoard';
 
-const ContactsView: React.FC<Props> = ({ contacts, updateContactStage }) => {
+const ContactsView: React.FC<Props> = ({ contacts, updateContactStage, onUpdateContact, onAddContact }) => {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768);
 
@@ -49,6 +52,8 @@ const ContactsView: React.FC<Props> = ({ contacts, updateContactStage }) => {
               contacts={contacts}
               onStageChange={updateContactStage}
               onContactClick={setSelectedContact}
+              onUpdateContact={onUpdateContact}
+              onAddContact={onAddContact}
             />
           </div>
         ) : (
@@ -178,6 +183,54 @@ const ContactSwipeCard: React.FC<{
 };
 
 const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = ({ contact, onClose }) => {
+  const [replyingTo, setReplyingTo] = useState<{ id: string; summary: string; body?: string } | null>(null);
+  const { googleAccessToken } = useAuth(); // Import useAuth
+  const [replyBody, setReplyBody] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [isLoadingBody, setIsLoadingBody] = useState(false);
+
+  // Fetch full body when replyingTo changes, if not already fetched
+  React.useEffect(() => {
+    const fetchBody = async () => {
+      if (replyingTo && !replyingTo.body && googleAccessToken) {
+        setIsLoadingBody(true);
+        try {
+          const threadId = replyingTo.id.replace('email-', '');
+          const { getThreadDetails } = await import('../services/gmailService');
+          const details = await getThreadDetails(googleAccessToken, threadId);
+          setReplyingTo(prev => prev ? { ...prev, body: details.lastMessageBody } : null);
+        } catch (e) {
+          console.error("Failed to fetch email body", e);
+        } finally {
+          setIsLoadingBody(false);
+        }
+      }
+    };
+    fetchBody();
+  }, [replyingTo?.id, googleAccessToken]);
+
+  const handleReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!replyingTo || !googleAccessToken) return;
+
+    try {
+      setIsSending(true);
+      const threadId = replyingTo.id.replace('email-', '');
+      const { sendReply } = await import('../services/gmailService');
+
+      await sendReply(googleAccessToken, threadId, contact.email, replyingTo.summary.replace('Received email: ', ''), replyBody);
+
+      alert("Reply sent!");
+      setReplyingTo(null);
+      setReplyBody('');
+    } catch (err) {
+      console.error(err);
+      alert("Failed to send reply");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   return (
     <motion.div
       initial={{ y: '100%' }}
@@ -224,14 +277,25 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
             {contact.interactions.map((interaction, idx) => (
               <div key={idx} className="flex gap-4 relative">
                 <div className={`w-5 h-5 rounded-full z-10 mt-1 flex items-center justify-center text-[10px] font-bold ${interaction.type === 'meeting' ? 'bg-indigo-600 text-white' :
-                    interaction.type === 'email' ? 'bg-amber-400 text-white' :
-                      'bg-slate-300 text-white'
+                  interaction.type === 'email' ? 'bg-amber-400 text-white' :
+                    'bg-slate-300 text-white'
                   }`}>
                 </div>
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-bold text-slate-900 capitalize">{interaction.type}</span>
-                    <span className="text-[10px] font-medium text-slate-400">{interaction.date}</span>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900 capitalize">{interaction.type}</span>
+                      <span className="text-[10px] font-medium text-slate-400">{interaction.date}</span>
+                    </div>
+
+                    {interaction.type === 'email' && interaction.id && interaction.id.startsWith('email-') && (
+                      <button
+                        onClick={() => setReplyingTo({ id: interaction.id, summary: interaction.summary })}
+                        className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded hover:bg-indigo-100"
+                      >
+                        Reply
+                      </button>
+                    )}
                   </div>
                   <p className="text-sm text-slate-600 font-medium leading-relaxed">{interaction.summary}</p>
                 </div>
@@ -253,6 +317,60 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
           </button>
         </div>
       </div>
+
+      {/* Reply Modal Overlay */}
+      {replyingTo && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl p-6 h-[80vh] flex flex-col"
+          >
+            <div className="flex justify-between items-center mb-4 shrink-0">
+              <h3 className="font-bold text-lg">Reply to {contact.name}</h3>
+              <button onClick={() => setReplyingTo(null)} className="p-1 hover:bg-slate-100 rounded-lg"><XCircle size={20} className="text-slate-400" /></button>
+            </div>
+
+            {/* Scrollable Email Content */}
+            <div className="flex-1 overflow-y-auto bg-slate-50 rounded-xl border border-slate-100 p-4 mb-4">
+              {isLoadingBody ? (
+                <div className="h-full flex items-center justify-center text-slate-400">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mb-2"></div>
+                  <span className="ml-2 text-xs">Loading email content...</span>
+                </div>
+              ) : (
+                <div>
+                  <div className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Original Message</div>
+                  <div
+                    className="prose prose-sm max-w-none text-slate-700 font-medium"
+                    dangerouslySetInnerHTML={{ __html: replyingTo.body || replyingTo.summary }}
+                  />
+                </div>
+              )}
+            </div>
+
+            <form onSubmit={handleReply} className="shrink-0">
+              <textarea
+                className="w-full h-32 p-3 bg-white border border-slate-200 rounded-xl mb-4 focus:ring-2 focus:ring-indigo-500 outline-none text-sm resize-none shadow-sm"
+                placeholder="Type your reply here..."
+                value={replyBody}
+                onChange={e => setReplyBody(e.target.value)}
+                autoFocus
+              />
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setReplyingTo(null)} className="px-4 py-2 text-slate-500 font-bold text-sm hover:bg-slate-50 rounded-xl">Cancel</button>
+                <button
+                  type="submit"
+                  disabled={isSending || !replyBody.trim()}
+                  className="px-6 py-2 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {isSending ? 'Sending...' : 'Send Reply'}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
     </motion.div>
   );
 };

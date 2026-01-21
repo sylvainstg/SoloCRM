@@ -11,24 +11,42 @@ import {
   CheckCircle2,
   XCircle,
   Zap,
-  Clock
+  Clock,
+  Send,
+  Filter,
+  Info
 } from 'lucide-react';
-import { Contact, LeadStage } from '../types';
+import { Contact, LeadStage, EmailThread } from '../types';
 import { STAGE_COLORS, STAGES_ORDER } from '../constants';
 import { useAuth } from '../context/AuthContext';
 
 interface Props {
   contacts: Contact[];
+  emailThreads?: EmailThread[];
   updateContactStage: (id: string, newStage: LeadStage) => void;
   onUpdateContact: (id: string, data: Partial<Contact>) => void;
   onAddContact: () => void;
+  // New props for lifted state
+  filterType: 'all' | 'unread' | 'stuck' | 'alpha' | 'age';
+  onFilterChange: (type: 'all' | 'unread' | 'stuck' | 'alpha' | 'age') => void;
 }
 
 import KanbanBoard from './KanbanBoard';
 
-const ContactsView: React.FC<Props> = ({ contacts, updateContactStage, onUpdateContact, onAddContact }) => {
+const ContactsView: React.FC<Props> = ({
+  contacts,
+  emailThreads = [],
+  updateContactStage,
+  onUpdateContact,
+  onAddContact,
+  filterType,
+  onFilterChange
+}) => {
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768);
+
+  // Filter logic removed (handled by parent App.tsx) - using passed contacts directly
+  const displayedContacts = contacts;
 
   React.useEffect(() => {
     const handleResize = () => setIsDesktop(window.innerWidth >= 768);
@@ -40,16 +58,44 @@ const ContactsView: React.FC<Props> = ({ contacts, updateContactStage, onUpdateC
     <div className="flex flex-col h-full overflow-hidden">
       {!isDesktop && (
         <div className="px-6 py-4 mb-2">
-          <h2 className="text-xl font-bold text-slate-900 mb-1">Pipeline</h2>
-          <p className="text-xs text-slate-500 font-medium">Swipe cards to progress deal stages</p>
+          <div className="flex justify-between items-end mb-2">
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 mb-1">Pipeline</h2>
+              <p className="text-xs text-slate-500 font-medium">Swipe cards to progress deal stages</p>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+            {[
+              { id: 'all', label: 'All', tooltip: 'Show all deals' },
+              { id: 'unread', label: 'Unread', tooltip: 'Contacts with new emails in Inbox' },
+              { id: 'stuck', label: 'Stuck', tooltip: 'No interaction in 14+ days' },
+              { id: 'alpha', label: 'A-Z', tooltip: 'Sort alphabetically' },
+              { id: 'age', label: 'Age', tooltip: 'Sort by staleness (Oldest first)' }
+            ].map(f => (
+              <button
+                key={f.id}
+                onClick={() => onFilterChange(f.id as any)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap border transition-all ${filterType === f.id
+                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                  }`}
+                title={f.tooltip}
+              >
+                {filterType === f.id && <CheckCircle2 size={12} />}
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden relative">
         {isDesktop ? (
-          <div className="h-full p-4 overflow-x-auto">
+          <div className="h-full p-4 overflow-x-auto relative">
             <KanbanBoard
-              contacts={contacts}
+              contacts={displayedContacts}
               onStageChange={updateContactStage}
               onContactClick={setSelectedContact}
               onUpdateContact={onUpdateContact}
@@ -59,10 +105,11 @@ const ContactsView: React.FC<Props> = ({ contacts, updateContactStage, onUpdateC
         ) : (
           <div className="px-6 pb-10 overflow-y-auto h-full space-y-4 no-scrollbar">
             <AnimatePresence>
-              {contacts.map((contact) => (
+              {displayedContacts.map((contact) => (
                 <ContactSwipeCard
                   key={contact.id}
                   contact={contact}
+                  hasUnread={emailThreads.some(t => t.email?.toLowerCase() === contact.email.toLowerCase())}
                   onStageChange={(newStage) => updateContactStage(contact.id, newStage)}
                   onClick={() => setSelectedContact(contact)}
                 />
@@ -84,9 +131,10 @@ const ContactsView: React.FC<Props> = ({ contacts, updateContactStage, onUpdateC
 
 const ContactSwipeCard: React.FC<{
   contact: Contact;
+  hasUnread?: boolean;
   onStageChange: (stage: LeadStage) => void;
   onClick: () => void;
-}> = ({ contact, onStageChange, onClick }) => {
+}> = ({ contact, hasUnread, onStageChange, onClick }) => {
   const x = useMotionValue(0);
   const background = useTransform(
     x,
@@ -135,8 +183,11 @@ const ContactSwipeCard: React.FC<{
       >
         <div className="flex justify-between items-start mb-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-500 font-bold">
+            <div className="w-10 h-10 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-500 font-bold relative">
               {contact.name.split(' ').map(n => n[0]).join('')}
+              {hasUnread && (
+                <div className="absolute -top-1 -right-1 w-3 h-3 bg-indigo-600 border-2 border-white rounded-full"></div>
+              )}
             </div>
             <div>
               <h4 className="text-sm font-bold text-slate-900">{contact.name}</h4>
@@ -188,6 +239,9 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
   const [replyBody, setReplyBody] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isLoadingBody, setIsLoadingBody] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
+  const [composeSubject, setComposeSubject] = useState('');
+  const [composeBody, setComposeBody] = useState('');
 
   // Fetch full body when replyingTo changes, if not already fetched
   React.useEffect(() => {
@@ -226,6 +280,28 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
     } catch (err) {
       console.error(err);
       alert("Failed to send reply");
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleSendEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!googleAccessToken) return;
+
+    try {
+      setIsSending(true);
+      const { sendEmail } = await import('../services/gmailService');
+
+      await sendEmail(googleAccessToken, contact.email, composeSubject, composeBody);
+
+      alert("Email sent!");
+      setIsComposing(false);
+      setComposeSubject('');
+      setComposeBody('');
+    } catch (err) {
+      console.error(err);
+      alert("Failed to send email");
     } finally {
       setIsSending(false);
     }
@@ -312,7 +388,13 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
           <p className="text-sm text-indigo-800 font-medium leading-relaxed mb-4">
             Based on the technical demo, {contact.name} is looking for a long-term integration partner. The pricing proposal should emphasize the multi-year support plan.
           </p>
-          <button className="w-full bg-indigo-600 text-white text-xs font-bold py-3 rounded-2xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100">
+          <button
+            onClick={() => {
+              setComposeSubject(`Follow up: ${contact.company}`);
+              setIsComposing(true);
+            }}
+            className="w-full bg-indigo-600 text-white text-xs font-bold py-3 rounded-2xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100"
+          >
             Draft Follow-up Email
           </button>
         </div>
@@ -365,6 +447,65 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
                   className="px-6 py-2 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 disabled:opacity-50"
                 >
                   {isSending ? 'Sending...' : 'Send Reply'}
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Compose Modal Overlay */}
+      {isComposing && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl p-6 h-[80vh] flex flex-col"
+          >
+            <div className="flex justify-between items-center mb-4 shrink-0">
+              <h3 className="font-bold text-lg">New Message to {contact.name}</h3>
+              <button onClick={() => setIsComposing(false)} className="p-1 hover:bg-slate-100 rounded-lg"><XCircle size={20} className="text-slate-400" /></button>
+            </div>
+
+            <form onSubmit={handleSendEmail} className="flex-1 flex flex-col">
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">To</label>
+                <div className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-sm text-slate-700">
+                  {contact.email}
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Subject</label>
+                <input
+                  value={composeSubject}
+                  onChange={e => setComposeSubject(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  placeholder="Subject line..."
+                  required
+                />
+              </div>
+
+              <div className="flex-1 mb-4">
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Message</label>
+                <textarea
+                  className="w-full h-full p-3 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm resize-none shadow-sm"
+                  placeholder="Type your message here..."
+                  value={composeBody}
+                  onChange={e => setComposeBody(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 shrink-0">
+                <button type="button" onClick={() => setIsComposing(false)} className="px-4 py-2 text-slate-500 font-bold text-sm hover:bg-slate-50 rounded-xl">Cancel</button>
+                <button
+                  type="submit"
+                  disabled={isSending || !composeSubject.trim() || !composeBody.trim()}
+                  className="px-6 py-2 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Send size={16} />
+                  {isSending ? 'Sending...' : 'Send Email'}
                 </button>
               </div>
             </form>

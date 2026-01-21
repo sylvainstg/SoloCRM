@@ -132,6 +132,40 @@ export const sendReply = async (accessToken: string, threadId: string, to: strin
     return await response.json();
 };
 
+export const sendEmail = async (accessToken: string, to: string, subject: string, body: string) => {
+    if (!accessToken) throw new Error("No access token");
+
+    // Construct MIME message
+    const emailLines = [
+        `To: ${to}`,
+        `Subject: ${subject}`,
+        'Content-Type: text/plain; charset="UTF-8"',
+        'MIME-Version: 1.0',
+        '',
+        body
+    ];
+
+    const email = emailLines.join('\r\n');
+    const base64EncodedEmail = btoa(unescape(encodeURIComponent(email))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+    const response = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/send`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            raw: base64EncodedEmail
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error('Failed to send email');
+    }
+
+    return await response.json();
+};
+
 const decodeBody = (payload: any): string => {
     if (!payload) return '';
 

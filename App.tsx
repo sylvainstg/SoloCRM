@@ -193,12 +193,38 @@ const AuthenticatedApp: React.FC = () => {
   };
 
 
+  // Filter State (Global for Pipeline)
+  const [filterType, setFilterType] = useState<'all' | 'unread' | 'stuck' | 'alpha' | 'age'>('all');
+
   const filteredContacts = useMemo(() => {
-    return contacts.filter(c =>
+    let result = contacts.filter(c =>
       c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       c.company.toLowerCase().includes(searchQuery.toLowerCase())
     );
-  }, [contacts, searchQuery]);
+
+    // Apply Pipeline Filters (only if on contacts tab technically, but safe to compute)
+    switch (filterType) {
+      case 'unread':
+        result = result.filter(c => emailThreads.some(t => t.email?.toLowerCase() === c.email.toLowerCase()));
+        break;
+      case 'stuck':
+        const fourteenDaysAgo = new Date();
+        fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+        result = result.filter(c => new Date(c.lastInteractionDate) < fourteenDaysAgo);
+        break;
+      case 'alpha':
+        result.sort((a, b) => a.name.localeCompare(b.name));
+        break;
+      case 'age':
+        result.sort((a, b) => new Date(a.lastInteractionDate).getTime() - new Date(b.lastInteractionDate).getTime());
+        break;
+      case 'all':
+      default:
+        break;
+    }
+
+    return result;
+  }, [contacts, searchQuery, filterType, emailThreads]);
 
   const renderContent = () => {
     if (!isLoaded) return <div className="flex-1 flex items-center justify-center text-slate-400">Loading your pipeline...</div>;
@@ -214,9 +240,12 @@ const AuthenticatedApp: React.FC = () => {
       case 'contacts':
         return <ContactsView
           contacts={filteredContacts}
+          emailThreads={emailThreads}
           updateContactStage={updateContactStage}
           onUpdateContact={handleUpdateContact}
           onAddContact={() => setIsAddLeadOpen(true)}
+          filterType={filterType}
+          onFilterChange={setFilterType}
         />;
       case 'calendar':
         return <CalendarView />;
@@ -238,7 +267,7 @@ const AuthenticatedApp: React.FC = () => {
           onUnignore={handleUnignore}
           emailHistoryDays={emailHistoryDays}
           onUpdateHistoryDays={async (days) => {
-            setEmailHistoryDays(days); // Optimistic
+            setEmailHistoryDays(days);
             if (user) {
               const { updateUserSetting } = await import('./services/firestoreService');
               await updateUserSetting(user.uid, 'emailHistoryDays', days);
@@ -387,11 +416,37 @@ const AuthenticatedApp: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-4">
+
+            {/* Pipeline Filters - Only show on Contacts tab */}
+            {activeTab === 'contacts' && (
+              <div className="flex bg-white rounded-xl border border-slate-200 p-1 shadow-sm mr-2">
+                {[
+                  { id: 'all', label: 'All', tooltip: 'Show all deals' },
+                  { id: 'unread', label: 'Unread', tooltip: 'Contacts with new emails' },
+                  { id: 'stuck', label: 'Stuck', tooltip: 'No interaction >14d' },
+                  { id: 'alpha', label: 'A-Z', tooltip: 'Alpha sort' },
+                  { id: 'age', label: 'Age', tooltip: 'Oldest first' }
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => setFilterType(f.id as any)}
+                    title={f.tooltip}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${filterType === f.id ? 'bg-indigo-100 text-indigo-700' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+                      }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
               <input
                 type="text"
                 placeholder="Search..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
                 className="pl-10 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-100 w-64"
               />
             </div>

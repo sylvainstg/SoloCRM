@@ -11,10 +11,8 @@ interface Props {
     onAddContact?: () => void;
 }
 
-type SortOption = 'idle' | 'alpha' | 'age';
 
 const KanbanBoard: React.FC<Props> = ({ contacts, onStageChange, onContactClick, onUpdateContact, onAddContact }) => {
-    const [sortBy, setSortBy] = useState<SortOption>('idle');
 
     const displayStages = [
         LeadStage.LEAD,
@@ -31,38 +29,16 @@ const KanbanBoard: React.FC<Props> = ({ contacts, onStageChange, onContactClick,
         return Math.floor(diff / (1000 * 3600 * 24));
     };
 
-    const sortContacts = (list: Contact[]) => {
-        return [...list].sort((a, b) => {
-            if (sortBy === 'alpha') return a.name.localeCompare(b.name);
-            if (sortBy === 'age') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-            // Default: Idle (Descending - most stuck first)
-            return getIdleDays(b.stageLastUpdated) - getIdleDays(a.stageLastUpdated);
-        });
-    };
-
+    // Contacts are already sorted/filtered by parent
     const columns = displayStages.map(stage => ({
         id: stage,
         title: stage,
-        contacts: sortContacts(contacts.filter(c => c.stage === stage))
+        contacts: contacts.filter(c => c.stage === stage)
     }));
 
     return (
         <div className="flex flex-col h-full bg-slate-50/50">
-            {/* Board Controls */}
-            <div className="flex justify-end px-6 py-2 gap-2">
-                <div className="flex bg-white rounded-lg p-1 border border-slate-200 shadow-sm">
-                    {(['idle', 'alpha', 'age'] as SortOption[]).map(option => (
-                        <button
-                            key={option}
-                            onClick={() => setSortBy(option)}
-                            className={`px-3 py-1 text-xs font-bold rounded-md transition-all capitalize ${sortBy === option ? 'bg-indigo-50 text-indigo-600' : 'text-slate-400 hover:text-slate-600'
-                                }`}
-                        >
-                            {option === 'idle' ? 'Stuck' : option}
-                        </button>
-                    ))}
-                </div>
-            </div>
+            {/* Board Controls - REMOVED (Moved to Parent) */}
 
             <div className="flex h-full gap-4 overflow-x-auto pb-4 px-6 no-scrollbar">
                 {columns.map(col => (

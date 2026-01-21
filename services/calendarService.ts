@@ -27,10 +27,20 @@ export const listEvents = async (accessToken: string, timeMin: string, timeMax: 
         });
 
         if (!response.ok) {
+            const errorBody = await response.text();
+            console.error("Calendar API Error details:", errorBody);
+
             if (response.status === 401) {
                 throw new Error("Unauthorized: Invalid or expired token");
             }
-            throw new Error(`Calendar API Error: ${response.statusText}`);
+
+            // Try to parse JSON error for cleaner message
+            try {
+                const errorJson = JSON.parse(errorBody);
+                throw new Error(errorJson.error?.message || `Calendar API Error (${response.status})`);
+            } catch (e) {
+                throw new Error(`Calendar API Error (${response.status}): ${errorBody}`);
+            }
         }
 
         const data = await response.json();

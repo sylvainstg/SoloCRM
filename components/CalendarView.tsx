@@ -5,11 +5,12 @@ import { useAuth } from '../context/AuthContext';
 import { listEvents, CalendarEvent } from '../services/calendarService';
 
 const CalendarView: React.FC = () => {
-  const { googleAccessToken, user } = useAuth();
+  const { googleAccessToken, user, signInWithGoogle } = useAuth();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
+  const [isAuthError, setIsAuthError] = useState(false);
 
   useEffect(() => {
     const fetchAgenda = async () => {
@@ -17,6 +18,7 @@ const CalendarView: React.FC = () => {
 
       setLoading(true);
       setError(null);
+      setIsAuthError(false);
       try {
         // Fetch for the selected day (Start of day to End of day)
         const startOfDay = new Date(selectedDate);
@@ -33,7 +35,12 @@ const CalendarView: React.FC = () => {
         setEvents(data);
       } catch (err: any) {
         console.error(err);
-        setError("Failed to load calendar events.");
+        if (err.message && (err.message.includes("Unauthorized") || err.message.includes("401"))) {
+          setIsAuthError(true);
+          setError("Calendar permission needed or session expired.");
+        } else {
+          setError("Failed to load calendar events.");
+        }
       } finally {
         setLoading(false);
       }
@@ -138,9 +145,18 @@ const CalendarView: React.FC = () => {
             <span className="text-sm font-medium text-slate-500">Syncing with Google...</span>
           </div>
         ) : error ? (
-          <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-medium text-center">
-            {error}
-            <button onClick={() => window.location.reload()} className="block mx-auto mt-2 underline">Retry</button>
+          <div className="bg-red-50 text-red-600 p-6 rounded-xl text-sm font-medium text-center flex flex-col items-center">
+            <p className="mb-4">{error}</p>
+            {isAuthError ? (
+              <button
+                onClick={signInWithGoogle}
+                className="bg-white border border-red-200 text-red-600 px-4 py-2 rounded-lg font-bold hover:bg-red-50 transition-colors shadow-sm"
+              >
+                Reconnect Google Account
+              </button>
+            ) : (
+              <button onClick={() => window.location.reload()} className="underline text-red-500">Retry</button>
+            )}
           </div>
         ) : events.length === 0 ? (
           <div className="text-center py-10 text-slate-400">
@@ -169,8 +185,8 @@ const CalendarView: React.FC = () => {
 const MeetingCard: React.FC<{ title: string; time: string; attendees: string[]; type: 'crm' | 'internal'; link?: string }> = ({ title, time, attendees, type, link }) => {
   return (
     <a href={link} target="_blank" rel="noreferrer" className={`block p-5 rounded-3xl border transition-all hover:shadow-md ${type === 'crm'
-        ? 'bg-white border-indigo-100 shadow-sm border-l-4 border-l-indigo-600'
-        : 'bg-white border-slate-100 text-slate-500 border-l-4 border-l-slate-300'
+      ? 'bg-white border-indigo-100 shadow-sm border-l-4 border-l-indigo-600'
+      : 'bg-white border-slate-100 text-slate-500 border-l-4 border-l-slate-300'
       }`}>
       <div className="flex justify-between items-start mb-3">
         <h4 className={`text-sm font-bold ${type === 'crm' ? 'text-slate-900' : 'text-slate-700'}`}>{title}</h4>

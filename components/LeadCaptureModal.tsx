@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Save, DollarSign, Calendar, FileText, User, Building, Mail } from 'lucide-react';
+import { X, Save, DollarSign, Calendar, FileText, User, Building, Mail, Phone } from 'lucide-react';
 import { EmailThread, LeadStage } from '../types';
 
 interface LeadCaptureModalProps {
@@ -9,6 +9,7 @@ interface LeadCaptureModalProps {
         name: string;
         company: string;
         email: string;
+        phone: string;
         value: number;
         closeDate: string;
         notes: string;
@@ -18,6 +19,7 @@ interface LeadCaptureModalProps {
 const LeadCaptureModal: React.FC<LeadCaptureModalProps> = ({ thread, onClose, onSave }) => {
     const [name, setName] = useState(thread.from);
     const [company, setCompany] = useState('New Lead');
+    const [phone, setPhone] = useState('');
     const [value, setValue] = useState<string>('');
     const [closeDate, setCloseDate] = useState('');
     const [notes, setNotes] = useState('');
@@ -30,6 +32,7 @@ const LeadCaptureModal: React.FC<LeadCaptureModalProps> = ({ thread, onClose, on
             name,
             company,
             email: thread.email || '',
+            phone,
             value: parseFloat(value) || 0,
             closeDate,
             notes
@@ -91,6 +94,19 @@ const LeadCaptureModal: React.FC<LeadCaptureModalProps> = ({ thread, onClose, on
                                 required
                             />
                         </div>
+                    </div>
+
+                    <div className="space-y-1">
+                        <label className="text-xs font-bold text-slate-500 flex items-center gap-1">
+                            <Phone size={12} /> Phone
+                        </label>
+                        <input
+                            type="tel"
+                            value={phone}
+                            onChange={(e) => setPhone(e.target.value)}
+                            placeholder="+1 555-0123"
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                        />
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">

@@ -7,9 +7,18 @@ interface Props {
     onUnignore: (email: string) => void;
     emailHistoryDays: number;
     onUpdateHistoryDays: (days: number) => void;
+    stuckThresholdDays: number;
+    onUpdateStuckThreshold: (days: number) => void;
 }
 
-const SettingsView: React.FC<Props> = ({ ignoredEmails, onUnignore, emailHistoryDays, onUpdateHistoryDays }) => {
+const SettingsView: React.FC<Props> = ({
+    ignoredEmails,
+    onUnignore,
+    emailHistoryDays,
+    onUpdateHistoryDays,
+    stuckThresholdDays,
+    onUpdateStuckThreshold
+}) => {
     const [searchQuery, setSearchQuery] = useState('');
 
     const emailsList = Array.from(ignoredEmails).sort();
@@ -42,6 +51,27 @@ const SettingsView: React.FC<Props> = ({ ignoredEmails, onUnignore, emailHistory
                         <option value={7}>Last 7 Days (Default)</option>
                         <option value={14}>Last 2 Weeks</option>
                         <option value={30}>Last 30 Days</option>
+                    </select>
+                </div>
+            </div>
+
+            {/* Pipeline Filter Settings */}
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-6">
+                <h3 className="text-lg font-bold text-slate-900 mb-4">Pipeline Filter Settings</h3>
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-sm font-bold text-slate-700">Stuck Filter Threshold</p>
+                        <p className="text-xs text-slate-400 mt-1">Contacts with no interaction in this many days are considered "stuck"</p>
+                    </div>
+                    <select
+                        value={stuckThresholdDays}
+                        onChange={(e) => onUpdateStuckThreshold(Number(e.target.value))}
+                        className="bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-xl focus:ring-indigo-500 focus:border-indigo-500 block p-2.5 font-bold outline-none"
+                    >
+                        <option value={7}>7 Days (Default)</option>
+                        <option value={14}>14 Days</option>
+                        <option value={21}>21 Days</option>
+                        <option value={30}>30 Days</option>
                     </select>
                 </div>
             </div>

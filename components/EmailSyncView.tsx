@@ -127,7 +127,7 @@ const EmailSyncView: React.FC<Props> = ({
     }
   };
 
-  const handleSaveOpportunity = async (data: { name: string; company: string; email: string; value: number; closeDate: string; notes: string }) => {
+  const handleSaveOpportunity = async (data: { name: string; company: string; email: string; phone: string; value: number; closeDate: string; notes: string }) => {
     if (!user || !selectedThreadForCreation) return;
 
     const newContact: Contact = {
@@ -135,7 +135,7 @@ const EmailSyncView: React.FC<Props> = ({
       name: data.name,
       company: data.company,
       email: data.email,
-      phone: '',
+      phone: data.phone,
       stage: LeadStage.LEAD,
       value: data.value,
       lastInteractionDate: new Date().toISOString().split('T')[0],

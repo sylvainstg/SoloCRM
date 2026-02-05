@@ -87,6 +87,7 @@ const AuthenticatedApp: React.FC = () => {
   const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
   const [emailHistoryDays, setEmailHistoryDays] = useState(7); // Default 7 days
   const [isAuthError, setIsAuthError] = useState(false);
+  const [stuckThresholdDays, setStuckThresholdDays] = useState(7); // Default 7 days for stuck filter
 
   // Subscribe to Firestore contacts
   useEffect(() => {
@@ -104,6 +105,20 @@ const AuthenticatedApp: React.FC = () => {
 
     return () => unsubscribe();
   }, [user]);
+
+  // Load stuck threshold from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('stuckThresholdDays');
+    if (saved) {
+      setStuckThresholdDays(Number(saved));
+    }
+  }, []);
+
+  // Save stuck threshold to localStorage
+  const handleUpdateStuckThreshold = (days: number) => {
+    setStuckThresholdDays(days);
+    localStorage.setItem('stuckThresholdDays', String(days));
+  };
 
   // Subscribe to Ignored List & Settings (Global)
   useEffect(() => {
@@ -208,9 +223,9 @@ const AuthenticatedApp: React.FC = () => {
         result = result.filter(c => emailThreads.some(t => t.email?.toLowerCase() === c.email.toLowerCase()));
         break;
       case 'stuck':
-        const fourteenDaysAgo = new Date();
-        fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-        result = result.filter(c => new Date(c.lastInteractionDate) < fourteenDaysAgo);
+        const stuckThresholdDate = new Date();
+        stuckThresholdDate.setDate(stuckThresholdDate.getDate() - stuckThresholdDays);
+        result = result.filter(c => new Date(c.lastInteractionDate) < stuckThresholdDate);
         break;
       case 'alpha':
         result.sort((a, b) => a.name.localeCompare(b.name));
@@ -273,6 +288,8 @@ const AuthenticatedApp: React.FC = () => {
               await updateUserSetting(user.uid, 'emailHistoryDays', days);
             }
           }}
+          stuckThresholdDays={stuckThresholdDays}
+          onUpdateStuckThreshold={handleUpdateStuckThreshold}
         />;
       default:
         return <DashboardView contacts={contacts} setActiveTab={setActiveTab} />;
@@ -423,7 +440,7 @@ const AuthenticatedApp: React.FC = () => {
                 {[
                   { id: 'all', label: 'All', tooltip: 'Show all deals' },
                   { id: 'unread', label: 'Unread', tooltip: 'Contacts with new emails' },
-                  { id: 'stuck', label: 'Stuck', tooltip: 'No interaction >14d' },
+                  { id: 'stuck', label: 'Stuck', tooltip: `No interaction >${stuckThresholdDays}d` },
                   { id: 'alpha', label: 'A-Z', tooltip: 'Alpha sort' },
                   { id: 'age', label: 'Age', tooltip: 'Oldest first' }
                 ].map(f => (
@@ -500,6 +517,7 @@ const AddLeadModal: React.FC<{ onClose: () => void; onAdd: (contact: Omit<Contac
   const [name, setName] = useState('');
   const [company, setCompany] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [value, setValue] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -508,7 +526,7 @@ const AddLeadModal: React.FC<{ onClose: () => void; onAdd: (contact: Omit<Contac
       name,
       company,
       email,
-      phone: '',
+      phone,
       stage: LeadStage.LEAD,
       value: Number(value),
       interactions: [],
@@ -532,6 +550,10 @@ const AddLeadModal: React.FC<{ onClose: () => void; onAdd: (contact: Omit<Contac
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Email</label>
             <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Phone</label>
+            <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="+1 555-0123" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2" />
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Estimated Value ($)</label>

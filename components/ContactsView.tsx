@@ -14,7 +14,10 @@ import {
   Clock,
   Send,
   Filter,
-  Info
+  Info,
+  Plus,
+  Users,
+  Edit3
 } from 'lucide-react';
 import { Contact, LeadStage, EmailThread } from '../types';
 import { STAGE_COLORS, STAGES_ORDER } from '../constants';
@@ -32,6 +35,7 @@ interface Props {
 }
 
 import KanbanBoard from './KanbanBoard';
+import EditContactModal from './EditContactModal';
 
 const ContactsView: React.FC<Props> = ({
   contacts,
@@ -123,6 +127,7 @@ const ContactsView: React.FC<Props> = ({
         <ContactDetailModal
           contact={selectedContact}
           onClose={() => setSelectedContact(null)}
+          onUpdateContact={onUpdateContact}
         />
       )}
     </div>
@@ -233,7 +238,10 @@ const ContactSwipeCard: React.FC<{
   );
 };
 
-const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = ({ contact, onClose }) => {
+const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void; onUpdateContact: (id: string, data: Partial<Contact>) => void }> = ({ contact: initialContact, onClose, onUpdateContact }) => {
+  // Local state for the contact to allow updates to reflect immediately
+  const [contact, setContact] = useState<Contact>(initialContact);
+
   const [replyingTo, setReplyingTo] = useState<{ id: string; summary: string; body?: string } | null>(null);
   const { googleAccessToken } = useAuth(); // Import useAuth
   const [replyBody, setReplyBody] = useState('');
@@ -242,6 +250,15 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
   const [isComposing, setIsComposing] = useState(false);
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
+
+  // State for Edit Modal
+  const [isEditing, setIsEditing] = useState(false);
+
+  // New State for Manual Logging
+  const [isLogging, setIsLogging] = useState(false);
+  const [logType, setLogType] = useState<'note' | 'call' | 'meeting'>('note');
+  const [logSummary, setLogSummary] = useState('');
+  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Fetch full body when replyingTo changes, if not already fetched
   React.useEffect(() => {
@@ -307,6 +324,34 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
     }
   };
 
+  const handleLogInteraction = (e: React.FormEvent) => {
+    e.preventDefault();
+    const newInteraction = {
+      id: `manual-${Date.now()}`,
+      type: logType,
+      date: logDate,
+      summary: logSummary,
+      sentiment: 'neutral' as const
+    };
+
+    const updatedInteractions = [...contact.interactions, newInteraction];
+
+    // Update last interaction date if this new log is more recent
+    let newLastInteractionDate = contact.lastInteractionDate;
+    if (new Date(logDate) > new Date(contact.lastInteractionDate)) {
+      newLastInteractionDate = logDate;
+    }
+
+    onUpdateContact(contact.id, {
+      interactions: updatedInteractions,
+      lastInteractionDate: newLastInteractionDate
+    });
+
+    setIsLogging(false);
+    setLogSummary('');
+    setLogType('note');
+  };
+
   return (
     <motion.div
       initial={{ y: '100%' }}
@@ -319,7 +364,13 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
           <ArrowRight className="rotate-180" size={24} />
         </button>
         <h3 className="text-lg font-bold text-slate-900">Contact Profile</h3>
-        <div className="w-10" />
+        <button
+          onClick={() => setIsEditing(true)}
+          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors"
+          title="Modifier le contact"
+        >
+          <Edit3 size={20} />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-6 space-y-8 no-scrollbar pb-10">
@@ -348,35 +399,104 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
         </div>
 
         <div>
-          <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Interaction Timeline</h4>
-          <div className="space-y-6 relative before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-px before:bg-slate-100">
-            {contact.interactions.map((interaction, idx) => (
-              <div key={idx} className="flex gap-4 relative">
-                <div className={`w-5 h-5 rounded-full z-10 mt-1 flex items-center justify-center text-[10px] font-bold ${interaction.type === 'meeting' ? 'bg-indigo-600 text-white' :
-                  interaction.type === 'email' ? 'bg-amber-400 text-white' :
-                    'bg-slate-300 text-white'
-                  }`}>
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900 capitalize">{interaction.type}</span>
-                      <span className="text-[10px] font-medium text-slate-400">{interaction.date}</span>
+          <div className="flex items-center justify-between mb-6">
+            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Engagement History</h4>
+            <button
+              onClick={() => setIsLogging(true)}
+              className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100 transition-colors"
+            >
+              <Plus size={12} />
+              Log Note
+            </button>
+          </div>
+
+          <div className="space-y-0 relative before:absolute before:left-4 before:top-2 before:bottom-0 before:w-0.5 before:bg-slate-100">
+            {[...contact.interactions]
+              .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+              .map((interaction, idx, arr) => {
+                const nextInteraction = arr[idx + 1];
+                const currentDate = new Date(interaction.date);
+                const nextDate = nextInteraction ? new Date(nextInteraction.date) : null;
+
+                let gapDays = 0;
+                if (nextDate) {
+                  const diffTime = Math.abs(currentDate.getTime() - nextDate.getTime());
+                  gapDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                }
+
+                // Relative time helper
+                const getRelativeTime = (dateStr: string) => {
+                  const date = new Date(dateStr);
+                  const now = new Date();
+                  const diffTime = Math.abs(now.getTime() - date.getTime());
+                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                  if (diffDays === 0) return 'Today';
+                  if (diffDays === 1) return 'Yesterday';
+                  if (diffDays < 7) return `${diffDays} days ago`;
+                  if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+                  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                };
+
+                return (
+                  <div key={idx} className="relative pb-8 last:pb-0">
+                    <div className="flex gap-4 relative">
+                      {/* Timeline Node */}
+                      <div className={`w-8 h-8 rounded-full z-10 flex items-center justify-center border-4 border-white shadow-sm shrink-0 ${interaction.type === 'meeting' ? 'bg-indigo-600 text-white' :
+                        interaction.type === 'email' ? 'bg-amber-400 text-white' :
+                          interaction.type === 'call' ? 'bg-emerald-500 text-white' :
+                            'bg-slate-400 text-white'
+                        }`}>
+                        {interaction.type === 'meeting' ? <Users size={14} /> :
+                          interaction.type === 'email' ? <Mail size={14} /> :
+                            interaction.type === 'call' ? <Phone size={14} /> :
+                              <div className="w-2 h-2 bg-white rounded-full" />}
+                      </div>
+
+                      {/* Content Card */}
+                      <div className="flex-1 bg-white border border-slate-100 rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-md uppercase tracking-wide ${interaction.type === 'meeting' ? 'bg-indigo-50 text-indigo-700' :
+                              interaction.type === 'email' ? 'bg-amber-50 text-amber-700' :
+                                interaction.type === 'call' ? 'bg-emerald-50 text-emerald-700' :
+                                  'bg-slate-100 text-slate-600'
+                              }`}>
+                              {interaction.type}
+                            </span>
+                            <span className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
+                              <Clock size={10} />
+                              {getRelativeTime(interaction.date)}
+                            </span>
+                          </div>
+
+                          {interaction.type === 'email' && interaction.id && interaction.id.startsWith('email-') && (
+                            <button
+                              onClick={() => setReplyingTo({ id: interaction.id, summary: interaction.summary })}
+                              className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800"
+                            >
+                              Reply
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-sm text-slate-700 font-medium leading-relaxed">{interaction.summary}</p>
+                        {/* Original date tooltip or subtitle could go here if needed */}
+                        <div className="text-[10px] text-slate-300 mt-2 font-medium">
+                          {new Date(interaction.date).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                        </div>
+                      </div>
                     </div>
 
-                    {interaction.type === 'email' && interaction.id && interaction.id.startsWith('email-') && (
-                      <button
-                        onClick={() => setReplyingTo({ id: interaction.id, summary: interaction.summary })}
-                        className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded hover:bg-indigo-100"
-                      >
-                        Reply
-                      </button>
+                    {/* Gap Indicator */}
+                    {gapDays > 14 && (
+                      <div className="absolute left-4 -translate-x-1/2 bottom-0 top-[calc(100%-2rem)] w-px flex items-center justify-center">
+                        <div className="bg-slate-50 border border-slate-200 text-slate-400 text-[9px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap z-0">
+                          {Math.floor(gapDays / 7)} weeks silence
+                        </div>
+                      </div>
                     )}
                   </div>
-                  <p className="text-sm text-slate-600 font-medium leading-relaxed">{interaction.summary}</p>
-                </div>
-              </div>
-            ))}
+                );
+              })}
           </div>
         </div>
 
@@ -512,6 +632,94 @@ const ContactDetailModal: React.FC<{ contact: Contact; onClose: () => void }> = 
           </motion.div>
         </div>
       )}
+
+      {/* Manual Interaction Logging Modal */}
+      {isLogging && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6"
+          >
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg text-slate-900">Log Interaction</h3>
+              <button onClick={() => setIsLogging(false)} className="p-1 hover:bg-slate-100 rounded-lg">
+                <XCircle size={20} className="text-slate-400" />
+              </button>
+            </div>
+
+            <form onSubmit={handleLogInteraction} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Type</label>
+                <div className="flex gap-2">
+                  {(['note', 'call', 'meeting'] as const).map(t => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setLogType(t)}
+                      className={`flex-1 py-2 text-xs font-bold uppercase rounded-xl border transition-all ${logType === t
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                        }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Date</label>
+                <input
+                  type="date"
+                  value={logDate}
+                  onChange={e => setLogDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Summary/Notes</label>
+                <textarea
+                  className="w-full h-24 p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm resize-none"
+                  placeholder="What happened?"
+                  value={logSummary}
+                  onChange={e => setLogSummary(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={!logSummary.trim()}
+                  className="w-full py-3 bg-indigo-600 text-white font-bold text-sm rounded-xl hover:bg-indigo-700 disabled:opacity-50 shadow-lg shadow-indigo-100"
+                >
+                  Save Log
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+
+      {/* Edit Contact Modal */}
+      {isEditing && (
+        <EditContactModal
+          contact={contact}
+          onClose={() => setIsEditing(false)}
+          onSave={(id, data) => {
+            // Update local state to reflect changes immediately
+            setContact(prev => ({ ...prev, ...data }));
+            // Persist to Firestore
+            onUpdateContact(id, data);
+            setIsEditing(false);
+          }}
+        />
+      )}
+
     </motion.div>
   );
 };
